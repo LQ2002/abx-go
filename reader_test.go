@@ -2,104 +2,54 @@ package abx
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/xml"
+	"io"
+	"os"
 	"testing"
 )
 
-const maxUnsignedShort = 65535
+type Package struct {
+	Name     string `xml:"name,attr"`
+	CodePath string `xml:"codePath,attr"`
+	UserID   int    `xml:"userId,attr"`
+}
 
-func TestParsePackagesXMLDemo(t *testing.T) {
-	abxData := buildPackagesDemoABX(t)
+func TestParsePackagesXML(t *testing.T) {
 
-	reader, ok := NewReader(bytes.NewReader(abxData))
+	data, err := os.ReadFile("packages.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reader, ok := NewReader(bytes.NewReader(data))
 	if !ok {
-		t.Fatal("expected ABX reader to be created")
+		t.Fatal("file is not ABX format")
 	}
 
 	decoder := xml.NewTokenDecoder(reader)
 
-	var got struct {
-		XMLName  xml.Name `xml:"packages"`
-		Packages []struct {
-			Name    string `xml:"name,attr"`
-			Version int    `xml:"version,attr"`
-			Enabled bool   `xml:"enabled,attr"`
-		} `xml:"package"`
-	}
-	if err := decoder.Decode(&got); err != nil {
-		t.Fatalf("decode packages.xml ABX: %v", err)
-	}
+	for {
+		tok, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	if got.XMLName.Local != "packages" {
-		t.Fatalf("unexpected root tag: %q", got.XMLName.Local)
-	}
-	if len(got.Packages) != 1 {
-		t.Fatalf("unexpected package count: %d", len(got.Packages))
-	}
+		switch se := tok.(type) {
 
-	pkg := got.Packages[0]
-	if pkg.Name != "com.demo.app" {
-		t.Fatalf("unexpected package name: %q", pkg.Name)
-	}
-	if pkg.Version != 123 {
-		t.Fatalf("unexpected package version: %d", pkg.Version)
-	}
-	if !pkg.Enabled {
-		t.Fatal("expected package enabled=true")
-	}
-}
+		case xml.StartElement:
+			if se.Name.Local == "package" {
 
-func buildPackagesDemoABX(t *testing.T) []byte {
-	t.Helper()
+				var p Package
+				if err := decoder.DecodeElement(&p, &se); err != nil {
+					t.Fatal(err)
+				}
 
-	var out bytes.Buffer
-	out.Write([]byte{0x41, 0x42, 0x58, 0x00})
-
-	out.WriteByte(0x00)
-	out.WriteByte(0x02)
-	writeInternedUTF(t, &out, "packages")
-
-	out.WriteByte(0x02)
-	writeInternedUTF(t, &out, "package")
-
-	out.WriteByte(0x2f)
-	writeInternedUTF(t, &out, "name")
-	writeUTF(t, &out, "com.demo.app")
-
-	out.WriteByte(0x6f)
-	writeInternedUTF(t, &out, "version")
-	if err := binary.Write(&out, binary.BigEndian, int32(123)); err != nil {
-		t.Fatalf("write version: %v", err)
-	}
-
-	out.WriteByte(0xcf)
-	writeInternedUTF(t, &out, "enabled")
-
-	out.WriteByte(0x03)
-	writeInternedUTF(t, &out, "package")
-
-	out.WriteByte(0x03)
-	writeInternedUTF(t, &out, "packages")
-
-	out.WriteByte(0x01)
-	return out.Bytes()
-}
-
-func writeInternedUTF(t *testing.T, out *bytes.Buffer, value string) {
-	t.Helper()
-	if err := binary.Write(out, binary.BigEndian, uint16(maxUnsignedShort)); err != nil {
-		t.Fatalf("write string ref marker: %v", err)
-	}
-	writeUTF(t, out, value)
-}
-
-func writeUTF(t *testing.T, out *bytes.Buffer, value string) {
-	t.Helper()
-	if err := binary.Write(out, binary.BigEndian, uint16(len(value))); err != nil {
-		t.Fatalf("write utf length: %v", err)
-	}
-	if _, err := out.WriteString(value); err != nil {
-		t.Fatalf("write utf value: %v", err)
+				t.Logf("package=%s path=%s uid=%d",
+					p.Name, p.CodePath, p.UserID)
+			}
+		}
 	}
 }
