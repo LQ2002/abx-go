@@ -98,7 +98,16 @@ func (r *Reader) Token() (token xml.Token, err error) {
 		_, err = r.readUTF()
 		return
 	case ATTRIBUTE:
-		return nil, E.New("unexpected attribute")
+		err = r.reader.UnreadByte()
+    	if err != nil {
+    	    return nil, err
+    	}
+		err = r.pullAttribute()
+		if err != nil {
+			return nil, err
+		}
+		r.attrs = nil
+		return r.Token()
 	}
 	return nil, E.New("unknown token type ", tokenType, " with type ", eventType)
 }
